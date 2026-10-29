@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+echo "$TORQUE_SERVER_HOST" > /var/spool/torque/server_name
 
 trqauthd
 

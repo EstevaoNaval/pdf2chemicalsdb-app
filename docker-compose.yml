@@ -4,7 +4,7 @@ services:
       context: frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     restart: unless-stopped
     env_file:
       - frontend/.env
@@ -33,7 +33,7 @@ services:
       - ${DATA_ROOT_DIR}:${DATA_ROOT_DIR}:rw
       - django-api-logs:/logs # Volume para logs
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     networks:
@@ -151,11 +151,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5477:5477"
+      - "127.0.0.1:5477:5477"
     restart: unless-stopped
 
   redis:
-    image: redis:7.2-alpine
+    image: redis:8-alpine
     deploy:
       resources:
         limits:
@@ -168,7 +168,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     env_file:
       - .env
     environment:
@@ -189,8 +189,8 @@ services:
     environment:
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 31622400000"
     ports:
-      - "5672:5672" # Porta padrão do RabbitMQ
-      - "15672:15672" # Porta para a interface de administração do RabbitMQ
+      - "127.0.0.1:5672:5672" # Porta padrão do RabbitMQ
+      - "127.0.0.1:15672:15672" # Porta para a interface de administração do RabbitMQ
     restart: unless-stopped
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
@@ -206,8 +206,8 @@ services:
     networks:
       - bridge-network
     ports:
-      - "3310:3310"
-      - "7357:7357"
+      - "127.0.0.1:3310:3310"
+      - "127.0.0.1:7357:7357"
     volumes:
       - clamav-data:/var/lib/clamav
       - clamav-logs:/var/log/clamav
