@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 from django.db import IntegrityError
 
@@ -8,6 +9,16 @@ from common.fields import RelativePathImageField, RelativePathFileField
 
 from .models import *
 from .util.util import ManuscriptMetadata
+
+_CONF_EXTENSIONS = {"pdb", "sdf", "mol2", "smi"}
+
+
+def conformation_storage_name(uploaded_name: str) -> str:
+    """Stored conformation filename. Keep pdb/sdf/mol2/smi; anything else is sdf."""
+    suffix = Path(uploaded_name).suffix.lower().lstrip(".")
+    if suffix not in _CONF_EXTENSIONS:
+        suffix = "sdf"
+    return f"conf_{uuid.uuid4().hex}.{suffix}"
 
 
 class LiteratureSerializer(serializers.ModelSerializer):
@@ -242,7 +253,7 @@ class ChemicalSerializer(serializers.ModelSerializer):
 
         if nested_data["conformations"]:
             for conf in nested_data["conformations"]:
-                conf["conf_file"].name = f"conf_{uuid.uuid4().hex}.sdf"
+                conf["conf_file"].name = conformation_storage_name(conf["conf_file"].name)
                 Conformation.objects.create(
                     chemical=chemical, conf_file=conf["conf_file"]
                 )
@@ -377,7 +388,7 @@ class ChemicalSerializer(serializers.ModelSerializer):
             for key, files in conformations_files.lists():
                 if key.startswith("conformations") and "conf_file" in key:
                     for conf in files:
-                        conf.name = f"conf_{uuid.uuid4().hex}.sdf"
+                        conf.name = conformation_storage_name(conf.name)
                         Conformation.objects.update_or_create(
                             chemical=instance, conf_file=conf
                         )

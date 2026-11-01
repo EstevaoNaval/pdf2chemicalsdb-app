@@ -1,9 +1,21 @@
-import requests
+import logging
 from io import BytesIO
 
+import requests
 from django.conf import settings
 
 from celery import shared_task
+
+logger = logging.getLogger(__name__)
+
+# One MIME per text format written into JSON ``conformation``.
+_CONF_MIME = {
+    "pdb": "chemical/x-pdb",
+    "sdf": "chemical/x-mdl-sdfile",
+    "mol2": "chemical/x-mol2",
+    "smi": "chemical/x-daylight-smiles",
+}
+
 
 @shared_task(
     name='chemicals.tasks.django_tasks_patch_conformation', 
@@ -15,16 +27,33 @@ from celery import shared_task
     retry_backoff=True,
     task_reject_on_worker_lost=True
 )
-def patch_conformation(self, chemical_id: str, conformations: list[str]):
-    files = {}
-    
-    for idx, conf_data in enumerate(conformations):
-        files[f"conformations[{idx}][conf_file]"] = (
-            f"conf_{idx}.sdf", 
-            BytesIO(conf_data.encode('utf-8')), # Conteúdo do arquivo em memória
-            "chemical/x-mdl-sdfile" # Tipo MIME
+def patch_conformation(self, chemical_id: str, conformations: dict[str, list[str]]):
+    if not isinstance(conformations, dict):
+        logger.warning(
+            "Skipping conformations for %s: expected a format object, got %s",
+            chemical_id,
+            type(conformations).__name__,
         )
-    
+        return
+
+    files = {}
+    number = 0
+    for fmt, texts in conformations.items():
+        if fmt not in _CONF_MIME:
+            continue
+        if not isinstance(texts, list):
+            continue
+        for text in texts:
+            files[f"conformations[{number}][conf_file]"] = (
+                f"conf_{number}.{fmt}",
+                BytesIO(text.encode("utf-8")),
+                _CONF_MIME[fmt],
+            )
+            number += 1
+
+    if not files:
+        return
+
     r = requests.patch(
         url=settings.API_BASE_URL+f"/api/chemicals/admin/{chemical_id}/",
         files=files,

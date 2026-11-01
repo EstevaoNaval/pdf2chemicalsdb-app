@@ -25,7 +25,8 @@ export default {
     loadMolecule() {
       this.stage.removeAllComponents();
 
-      this.stage.loadFile(this.file, { ext: 'sdf' }).then((o) => {
+      const ext = this.file.split('?')[0].split('.').pop()
+      this.stage.loadFile(this.file, { ext }).then((o) => {
         o.addRepresentation('ball+stick', {
           aspectRatio: 2.0,
           multipleBond: 'symmetric',

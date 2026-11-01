@@ -1,3 +1,4 @@
+from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 from io import BytesIO
 
@@ -64,8 +65,8 @@ class DownloadChemicalConformationZipView(generics.RetrieveAPIView):
         zip_buffer = BytesIO()
         
         with ZipFile(file=zip_buffer, mode='w', compression=ZIP_DEFLATED) as zip_file:
-            for idx, conf in enumerate(confs):
-                zip_file.writestr(f'conf_{idx}.sdf', conf.conf_file.read())
+            for conf in confs:
+                zip_file.writestr(Path(conf.conf_file.name).name, conf.conf_file.read())
         
         zip_buffer.seek(0)
         

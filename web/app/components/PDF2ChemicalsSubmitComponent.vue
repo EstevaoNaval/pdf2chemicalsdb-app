@@ -66,22 +66,11 @@
               </svg>
               <h3 class="card-title text-lg">Conformations</h3>
             </div>
-            <Transition name="fade">
-              <div v-if="exportFormatRadio === 'json'" class="alert alert-info mb-3 py-2 text-xs">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                  class="stroke-current shrink-0 w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                <span>Fixed to MOL2 for JSON</span>
-              </div>
-            </Transition>
             <div class="grid grid-cols-2 gap-2">
               <label v-for="format in chemicalsConfsFormats" :key="format.id"
-                class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 transition-colors cursor-pointer"
-                :class="{ 'opacity-50 cursor-not-allowed': exportFormatRadio === 'json' && format.value !== 'mol2' }">
+                class="flex items-center gap-2 p-2 rounded-lg hover:bg-base-200 transition-colors cursor-pointer">
                 <input :id="format.id" type="checkbox" :value="format.value" v-model="chemicalsConfsFormatCheckbox"
-                  class="checkbox checkbox-primary checkbox-sm" :disabled="exportFormatRadio === 'json'" />
+                  class="checkbox checkbox-primary checkbox-sm" />
                 <span class="text-sm font-medium">{{ format.label }}</span>
               </label>
             </div>
@@ -360,7 +349,6 @@ const closeModal = inject('closeModal')
 
 watch(exportFormatRadio, (newVal) => {
   if (newVal === 'json') {
-    chemicalsConfsFormatCheckbox.value = ['mol2']
     chemicals2DStructureFormatCheckbox.value = ['svg']
   }
 })
