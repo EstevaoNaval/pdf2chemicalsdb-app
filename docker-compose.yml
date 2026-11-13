@@ -110,7 +110,7 @@ services:
     volumes:
       - ${DATA_ROOT_DIR}:${DATA_ROOT_DIR}:rw
     env_file:
-      - api/.env
+      - .env
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
     depends_on:
