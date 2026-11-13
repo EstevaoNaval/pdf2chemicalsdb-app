@@ -80,17 +80,23 @@ services:
         max-size: "10m" # Limita o tamanho dos logs para 10MB
         max-file: "3" # Mantém no máximo 3 arquivos de log
 
-  # Serviço Celery Worker para PDF (com acesso ao Django e ao pdf_processor)
-  pdf2chemicals-worker:
+  # Serviço Celery Worker para PDF (com acesso ao Django e ao pdf_processor).
+  # Torque clients and the service user live in the image. No host passwd, spool, or /opt/torque mounts.
+  pdf2chemicals-celery-worker:
     build:
-      context: backend
-      dockerfile: Dockerfile
+      context: api
+      dockerfile: Dockerfile.pdf2chemicals-worker
       args:
-        - USER=${PDF2CHEMICALS_WORKER_USER}
-        - UID=${PDF2CHEMICALS_WORKER_UID}
-        - GID=${DATA_GID}
+        - SVC_USER=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}
+        - SVC_UID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_UID}
+        - SVC_GID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_GID}
+        - DATA_GID=${DATA_GID}
+        - DATA_GROUP=${DATA_GROUP}
+        - TORQUE_SHA256=${TORQUE_SHA256:-}
     restart: unless-stopped
-    hostname: ${PDF2CHEMICALS_WORKER_HOSTNAME}
+    hostname: ${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_HOSTNAME}
+    init: true
+    stop_grace_period: 120s
     deploy:
       resources:
         limits:
@@ -98,31 +104,23 @@ services:
           memory: "4G"
     networks:
       bridge-network:
-        ipv4_address: ${PDF2CHEMICALS_WORKER_HOSTNAME_IPV4}
+        ipv4_address: ${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_HOSTNAME_IPV4}
     extra_hosts:
-      - ${TORQUE_SERVER}:${TORQUE_SERVER_HOST}
+      - ${TORQUE_SERVER}:${TORQUE_GATEWAY_IPV4}
     volumes:
       - ${DATA_ROOT_DIR}:${DATA_ROOT_DIR}:rw
-      - ${HOST_USER_LIST}:${HOST_USER_LIST}:ro
-      - ${HOST_USER_PASSWORD_LIST}:${HOST_USER_PASSWORD_LIST}:ro
-      - ${HOST_GROUP_LIST}:${HOST_GROUP_LIST}:ro
-      - ${TORQUE_HOME}:${TORQUE_HOME}:ro
-      - ${TORQUE_USER_HOME}:${TORQUE_USER_HOME}
-      - ${TORQUE_ROOT_DIR}/server_name:${TORQUE_ROOT_DIR}/server_name:ro
-      - ${TORQUE_ROOT_DIR}/server_priv/accounting:${TORQUE_ROOT_DIR}/server_priv/accounting:ro
-      - ${TORQUE_ROOT_DIR}/server_logs:${TORQUE_ROOT_DIR}/server_logs:ro
-      - ${TORQUE_ROOT_DIR}/mom_logs:${TORQUE_ROOT_DIR}/mom_logs:ro
     env_file:
-      - .env
+      - api/.env
     environment:
-      - ENTRYPOINT_PATH=/src/scripts/docker-pdf2chemicals-worker-entrypoint.sh
-      - TORQUE_HOME=${TORQUE_HOME}
-      - TORQUE_SERVER=${TORQUE_SERVER}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
-      - PATH=${TORQUE_HOME}/bin:${TORQUE_HOME}/sbin:$PATH
-      - LD_LIBRARY_PATH=${TORQUE_HOME}/lib:$LD_LIBRARY_PATH
     depends_on:
       - rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "gosu svc_pdf2chemicals_prod qstat -q > /dev/null"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
     logging:
       driver: "json-file" # Default logging driver
       options:

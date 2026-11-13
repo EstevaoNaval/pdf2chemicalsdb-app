@@ -247,7 +247,7 @@
 
             <!-- Terms & Privacy -->
             <div class="text-center text-sm text-base-content/70 px-4">
-                By clicking "Sign Up", you agree to LabSOADB's
+                By clicking "Sign Up", you agree to PDF2ChemicalsDB's
                 <a href="#" class="link link-hover hover:link-primary">Terms of Service</a>
                 and acknowledge that our
                 <a href="#" class="link link-hover hover:link-primary">Privacy Policy</a>

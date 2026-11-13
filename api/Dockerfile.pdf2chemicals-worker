@@ -1,0 +1,108 @@
+# pdf2chemicals Celery worker.
+# Builds Torque 6.1.3 clients into the image and creates svc_pdf2chemicals_prod
+# with the cluster uid/gid plus the data group. Django images do not use this file.
+# Input: vendor/torque-6.1.3.tar.gz, requirements.txt, the API tree.
+# Output: image that starts as root so the entrypoint can launch trqauthd,
+# then drops to the service user for Celery.
+
+ARG PYTHON_VERSION=3.12
+ARG DEBIAN_RELEASE=bookworm
+ARG TORQUE_VERSION=6.1.3
+
+###############################################################################
+# Torque 6.1.3 clients only. Same Debian release as the Python runtime so
+# OpenSSL matches. Server and MOM are not built.
+###############################################################################
+FROM debian:${DEBIAN_RELEASE}-slim AS torque
+ARG TORQUE_VERSION
+ARG TORQUE_SHA256=""
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential libtool autoconf automake pkg-config \
+      libssl-dev libxml2-dev libboost-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY vendor/torque-${TORQUE_VERSION}.tar.gz /src/
+
+# Plain make: parallel Torque builds are unreliable.
+# --disable-gcc-warnings: gcc 12 warns on this 2018 tree and the default is to fail.
+RUN if [ -n "${TORQUE_SHA256}" ]; then \
+      echo "${TORQUE_SHA256}  torque-${TORQUE_VERSION}.tar.gz" | sha256sum -c -; \
+    fi \
+ && tar xzf torque-${TORQUE_VERSION}.tar.gz \
+ && cd torque-${TORQUE_VERSION} \
+ && { [ -x ./configure ] || ./autogen.sh; } \
+ && ./configure --prefix=/usr/local --with-server-home=/var/spool/torque \
+      --disable-server --disable-mom --disable-gcc-warnings \
+ && make \
+ && make install DESTDIR=/stage
+
+###############################################################################
+# Python dependencies, same install path as api/Dockerfile.
+###############################################################################
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_RELEASE} AS python-builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /src
+RUN pip install --upgrade pip
+COPY requirements.txt /src/
+RUN pip install --no-cache-dir -r requirements.txt
+
+###############################################################################
+# Runtime. No USER: the entrypoint needs root for trqauthd, then gosu.
+###############################################################################
+FROM python:${PYTHON_VERSION}-slim-${DEBIAN_RELEASE}
+
+ARG SVC_USER=svc_pdf2chemicals_prod
+ARG SVC_UID
+ARG SVC_GID
+ARG DATA_GID
+ARG DATA_GROUP
+
+ENV SVC_USER=${SVC_USER} \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/usr/local/sbin:${PATH}"
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libssl3 libxml2 gosu \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=python-builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
+COPY --from=python-builder /usr/local/bin/ /usr/local/bin/
+COPY --from=torque /stage/ /
+
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/torque.conf \
+ && ldconfig \
+ && mkdir -p /var/spool/torque
+
+# Fail the build if a client binary or its shared libraries are missing.
+RUN set -e; \
+    for b in qsub qstat qdel pbsnodes trqauthd; do \
+      p="$(command -v "$b")" || { echo "ERROR: $b not found in PATH"; exit 1; }; \
+      if ldd "$p" | grep -q "not found"; then echo "ERROR: missing libs for $b"; ldd "$p"; exit 1; fi; \
+      echo "OK: $p"; \
+    done
+
+# Primary group matches NIS (torque_queue_batch). Data group is supplementary
+# so the worker can write DATA_ROOT_DIR, which is group-owned on the host.
+RUN groupadd -g ${SVC_GID} torque_queue_batch \
+ && groupadd -g ${DATA_GID} ${DATA_GROUP} \
+ && useradd -m -u ${SVC_UID} -g torque_queue_batch -G ${DATA_GROUP} -s /usr/sbin/nologin ${SVC_USER}
+
+WORKDIR /src
+COPY . .
+# The tarball is a build input, not application code.
+RUN rm -rf /src/vendor
+
+COPY scripts/docker-pdf2chemicals-worker-entrypoint.sh /usr/local/bin/docker-pdf2chemicals-worker-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/docker-pdf2chemicals-worker-entrypoint.sh \
+ && chmod +x /usr/local/bin/docker-pdf2chemicals-worker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-pdf2chemicals-worker-entrypoint.sh"]
+CMD ["celery", "-A", "labsoa_website_backend", "worker", "--queues=pdf2chemicals_tasks", "--prefetch-multiplier=1", "--autoscale=3,0", "--max-tasks-per-child=1", "--loglevel=INFO"]

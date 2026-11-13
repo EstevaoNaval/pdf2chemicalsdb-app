@@ -203,7 +203,7 @@ REST_KNOX = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'LabSOADB API',
+    'TITLE': 'PDF2ChemicalsDB API',
     'DESCRIPTION': 'Retrieve our chemicals through this API endpoints',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,

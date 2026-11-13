@@ -2,7 +2,7 @@
   <main class="min-h-screen bg-gradient-to-br from-base-200 via-base-100 to-base-200">
 
     <Head>
-      <Title>About | LabSOADB</Title>
+      <Title>About | PDF2ChemicalsDB</Title>
     </Head>
 
     <!-- Mobile Table of Contents -->
@@ -40,8 +40,8 @@
           </div>
 
           <h1
-            class="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent leading-tight">
-            About LabSOADB
+            class="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent leading-tight">
+            About PDF2ChemicalsDB
           </h1>
 
           <p class="text-lg md:text-xl text-base-content/70 leading-relaxed">
@@ -73,13 +73,15 @@
 
                 <div class="prose prose-lg max-w-none space-y-6 text-base-content/80">
                   <p class="leading-relaxed">
-                    LabSOADB is an <span class="font-semibold text-primary">open database</span> of chemicals gathered
+                    PDF2ChemicalsDB is an <span class="font-semibold text-primary">open database</span> of chemicals
+                    gathered
                     solely from <span class="font-semibold text-primary">automated chemical extraction</span> from
                     literature.
                     Using <span class="font-semibold text-secondary">data mining techniques</span>, enhanced with <span
                       class="font-semibold text-secondary">NLP</span>, <span
                       class="font-semibold text-secondary">Machine Learning</span> and <span
-                      class="font-semibold text-secondary">Deep Learning</span>, all chemicals that compose LabSOADB
+                      class="font-semibold text-secondary">Deep Learning</span>, all chemicals that compose
+                    PDF2ChemicalsDB
                     were extracted
                     from manuscripts, MSc dissertations, theses, and more in an automated way.
                   </p>
@@ -87,14 +89,14 @@
                   <div class="card bg-gradient-to-br from-primary/5 to-secondary/5 border border-primary/20">
                     <div class="card-body p-6">
                       <p class="leading-relaxed">
-                        LabSOADB exists with the purpose of leading a <span
+                        PDF2ChemicalsDB exists with the purpose of leading a <span
                           class="font-semibold text-base-content">family of databases composed by chemical data,
                           automatically mined from several unstructured data sources</span>.
                         Using <NuxtLink to="/pdf2chemicals/about"
                           class="link link-primary font-semibold hover:link-secondary transition-colors duration-200">
                           PDF2Chemicals
                         </NuxtLink> as
-                        this mining tool, LabSOADB becomes a
+                        this mining tool, PDF2ChemicalsDB becomes a
                         proof of concept (PoC) demonstrating that <span class="font-semibold text-base-content">it is
                           possible to populate chemical databases requiring minimal human interference</span>.
                       </p>
@@ -182,13 +184,13 @@
                         <p class="leading-relaxed">
                           The next step was to create a database called <NuxtLink to="/home"
                             class="link link-secondary font-semibold hover:link-primary transition-colors duration-200">
-                            LabSOADB
+                            PDF2ChemicalsDB
                           </NuxtLink>, populated with the extracted data,
                           to <span class="font-semibold text-base-content">democratize access to this data for the
                             scientific community</span>. Also, to <span class="font-semibold text-base-content">ease the
                             search and download of <NuxtLink to="/home"
                               class="link link-secondary font-semibold hover:link-primary transition-colors duration-200">
-                              LabSOADB
+                              PDF2ChemicalsDB
                             </NuxtLink> data</span>,
                           this website was created, <span class="font-semibold text-base-content">allowing any
                             non-technical user to access the gathered experimental data

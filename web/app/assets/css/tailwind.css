@@ -3,3 +3,29 @@
 @plugin "daisyui" {
   themes: winter --default, night --prefersdark;
 }
+
+/* Logo colors: secondary = logo blue, accent = logo yellow.
+   warning is moved to orange so it never looks like the brand yellow.
+   The winter accent is darker gold because logo yellow (#F8D010) on white fails icon contrast.
+   Logo blue sampled at #1090F8 is too close to primary, so secondary is a deeper blue in winter. */
+@plugin "daisyui/theme" {
+  name: "winter";
+  default: true;
+  --color-secondary: #1d5fd1;
+  --color-secondary-content: #ffffff;
+  --color-accent: #b7791f;
+  --color-accent-content: #ffffff;
+  --color-warning: #ea580c;
+  --color-warning-content: #ffffff;
+}
+
+@plugin "daisyui/theme" {
+  name: "night";
+  prefersdark: true;
+  --color-secondary: #4c9aff;
+  --color-secondary-content: #0f172a;
+  --color-accent: #f8d010;
+  --color-accent-content: #1a1300;
+  --color-warning: #fb923c;
+  --color-warning-content: #1c0a00;
+}

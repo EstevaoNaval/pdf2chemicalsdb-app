@@ -270,7 +270,7 @@
 
         <!-- Tips -->
         <div class="alert shadow-lg">
-          <LightBulbIcon class="h-6 w-6 text-warning shrink-0" />
+          <LightBulbIcon class="h-6 w-6 text-accent shrink-0" />
           <div>
             <h4 class="font-semibold text-sm">Pro Tips</h4>
             <div class="text-xs text-base-content/70 mt-1 space-y-0.5">

@@ -144,6 +144,9 @@ celerybeat.pid
 .env
 .env.*
 !.env.example
+
+# Torque client source. Same tarball as the server; verified at image build by TORQUE_SHA256.
+api/vendor/*.tar.gz
 .venv
 env/
 venv/

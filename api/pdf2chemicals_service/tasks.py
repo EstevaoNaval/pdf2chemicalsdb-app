@@ -1071,21 +1071,18 @@ def _submit_pbs_job(pbs_script_path):
         subprocess.CalledProcessError: If qsub fails
     """
 
-    cmd = (
-        f'sh -c "(cd {os.getenv("TORQUE_USER_HOME")} && '
-        f'{os.getenv("TORQUE_HOME")}/bin/qsub {pbs_script_path})"'
-    )
+    # -d sets PBS_O_WORKDIR. The job script cds there, and that path must exist on the MOM.
+    cmd = ["qsub", "-d", os.environ["TORQUE_USER_HOME"], pbs_script_path]
 
     result = subprocess.run(
         cmd,
-        shell=True,
         capture_output=True,
         text=True,
+        timeout=60,
         check=False,
     )
 
     if result.returncode != 0:
-        error_msg = result.stderr.strip() or result.stdout.strip()
         raise subprocess.CalledProcessError(
             result.returncode, cmd, output=result.stdout, stderr=result.stderr
         )

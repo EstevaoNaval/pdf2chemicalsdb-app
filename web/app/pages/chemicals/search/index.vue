@@ -2,7 +2,7 @@
   <main class="min-h-screen bg-base-200">
 
     <Head>
-      <Title>Search | LabSOADB</Title>
+      <Title>Search | PDF2ChemicalsDB</Title>
     </Head>
 
     <!-- Hero Search Section -->
@@ -22,7 +22,7 @@
             Search Chemicals
           </h1>
           <p class="text-base md:text-lg lg:text-xl text-base-content/70 max-w-3xl mx-auto">
-            Explore LabSOADB to find chemicals with ease. Search, filter, and analyze our database
+            Explore PDF2ChemicalsDB to find chemicals with ease. Search, filter, and analyze our database
             using advanced tools to streamline discovery and data insights.
           </p>
         </div>

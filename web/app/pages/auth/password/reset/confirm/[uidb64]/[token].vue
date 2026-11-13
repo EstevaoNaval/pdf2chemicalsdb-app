@@ -1,6 +1,7 @@
 <template>
     <main>
-        <div :class="themeStore.isDarkMode ? 'login-form-page-art-dark hero min-h-screen hidden md:grid md:grid-col-1' : 'login-form-page-art-light hero min-h-screen hidden md:grid md:grid-col-1'">
+        <div
+            :class="themeStore.isDarkMode ? 'login-form-page-art-dark hero min-h-screen hidden md:grid md:grid-col-1' : 'login-form-page-art-light hero min-h-screen hidden md:grid md:grid-col-1'">
             <div class="hero-overlay bg-opacity-60 bg-base-200"></div>
             <div class="hero-content w-full flex flex-col">
 
@@ -15,7 +16,8 @@
             </div>
         </div>
 
-        <div :class="themeStore.isDarkMode ? 'hero min-h-screen login-form-page-art-dark md:hidden' : 'hero min-h-screen login-form-page-art-light md:hidden'">
+        <div
+            :class="themeStore.isDarkMode ? 'hero min-h-screen login-form-page-art-dark md:hidden' : 'hero min-h-screen login-form-page-art-light md:hidden'">
             <div class="hero-overlay bg-opacity-60 bg-base-200"></div>
             <div class="hero-content w-full flex flex-col">
                 <NuxtLink to="/home" class="text-lg text-primary md:hidden">
@@ -31,29 +33,29 @@
 </template>
 
 <script setup>
-    import { useThemeStore } from "~/stores/theme.js"
+import { useThemeStore } from "~/stores/theme.js"
 
-    import PasswordReset from "~/components/PasswordReset.vue";
+import PasswordReset from "~/components/PasswordReset.vue";
 
-    const themeStore = useThemeStore()
+const themeStore = useThemeStore()
 
 </script>
 
 <style scoped>
-    .email-confirmation-page-art-dark {
-        background-image: url('~/assets/email_confirmation_background_dark.webp');
-    }
+.email-confirmation-page-art-dark {
+    background-image: url('~/assets/email_confirmation_background_dark.webp');
+}
 
-    .login-form-page-art-dark {
-        background-image: url('~/assets/login_form_page_art_dark.webp');
-    }
+.login-form-page-art-dark {
+    background-image: url('~/assets/login_form_page_art_dark.webp');
+}
 
-    .login-form-page-art-light {
-        background-image: url('~/assets/login_form_page_art_light.webp');
-    }
+.login-form-page-art-light {
+    background-image: url('~/assets/login_form_page_art_light.webp');
+}
 
-    .image-container {
-      background-size: cover;
-      background-position: center;
-    }
+.image-container {
+    background-size: cover;
+    background-position: center;
+}
 </style>
