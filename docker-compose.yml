@@ -85,7 +85,7 @@ services:
   pdf2chemicals-celery-worker:
     build:
       context: api
-      dockerfile: Dockerfile.pdf2chemicals-worker
+      dockerfile: ${PDF2CHEMICALS_WORKER_DOCKERFILE:-Dockerfile.ubuntu}
       args:
         - SVC_USER=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}
         - SVC_UID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_UID}

@@ -7,7 +7,7 @@
 
 The worker service `pdf2chemicals-celery-worker` follows this guide with these differences:
 
-- Image file is `api/Dockerfile.pdf2chemicals-worker`. Django-api and django-worker keep `api/Dockerfile`. Build context is `api`. Run Compose with `docker compose --env-file api/.env` so `${...}` substitution sees that file.
+- The worker image is chosen with `PDF2CHEMICALS_WORKER_DOCKERFILE`. Default is `api/Dockerfile.ubuntu` (same OS family as the PBS host, Python 3.12). Alternatives are `api/Dockerfile.debian` and `api/Dockerfile.rocky`. Django-api and django-worker keep `api/Dockerfile`. Build context is `api`. Run Compose with `docker compose --env-file api/.env`.
 - Application workdir is `/src`. Celery command is `-A labsoa_website_backend worker --queues=pdf2chemicals_tasks --prefetch-multiplier=1 --autoscale=3,0 --max-tasks-per-child=1 --loglevel=INFO`.
 - The service user's primary group is `torque_queue_batch`. Supplementary group is `DATA_GROUP` / `DATA_GID` (`labsoa_website_backend_data`, `1844`) so the process can write `DATA_ROOT_DIR`.
 - `qsub` is called as `qsub -d "$TORQUE_USER_HOME" <script>`. The PBS template runs `cd $PBS_O_WORKDIR`, and that directory must exist on the MOM. `TORQUE_USER_HOME` is a path, not a mount.
