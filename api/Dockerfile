@@ -19,17 +19,25 @@ FROM python:3.12-slim
 ARG USER
 ARG UID
 ARG GID
+# Set only by the pdf2chemicals worker. Django images leave these empty.
+ARG DATA_GROUP=""
+ARG DATA_GID=""
 
 # Instalar dependências do sistema (caso necessário)
 RUN apt-get update && \
 apt-get install -y gosu && \
 rm -rf /var/lib/apt/lists/*
 
-# Criar usuário não root
-RUN addgroup --gid ${GID} ${USER} && \
-adduser --disabled-password --no-create-home --uid ${UID} --gid ${GID} --shell /bin/sh ${USER} && \ 
-mkdir /src && \
-chown -R ${USER} /src
+# Primary group is GID. DATA_GID is a second group for the shared data directory,
+# and only when it is a different number (two groupadds with one GID fail).
+RUN addgroup --gid ${GID} ${USER} \
+ && adduser --disabled-password --no-create-home --uid ${UID} --gid ${GID} --shell /bin/sh ${USER} \
+ && if [ -n "${DATA_GID}" ] && [ "${DATA_GID}" != "${GID}" ]; then \
+      addgroup --gid ${DATA_GID} ${DATA_GROUP} \
+      && adduser ${USER} ${DATA_GROUP}; \
+    fi \
+ && mkdir /src \
+ && chown -R ${USER} /src
 
 # Definir o diretório de trabalho
 WORKDIR /src

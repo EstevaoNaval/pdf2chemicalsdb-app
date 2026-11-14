@@ -1,144 +1,21 @@
-"""PBS/Torque calls for the pdf2chemicals Celery worker.
+"""PBS script helpers and the Torque gateway client for the pdf2chemicals worker.
 
-Tasks call these functions. The functions call qsub, qstat, qdel, and pbsnodes
-on PATH. Inputs are job ids, node names, and PBS template fields. Outputs are
-job ids, status strings (COMPLETED, FAILED, RUNNING, QUEUED, UNKNOWN), and
-script paths under MEDIA_ROOT.
+Tasks call these functions. Submit, status, and delete are HTTP calls to
+torque-gateway. Inputs are script fields and job ids. Outputs are script paths
+under MEDIA_ROOT, job ids, and status strings: COMPLETED, FAILED, RUNNING,
+QUEUED, UNKNOWN.
 """
 
+import json
 import os
-import re
-import subprocess
-from datetime import datetime
-import redis
-from typing import List
-from random import choice
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 
 from django.conf import settings
 
 from .util.util import generate_random_alphanumeric_sequence
-
-
-class ResourceUnavailable(Exception):
-    pass
-
-
-class ClusterNodeManager:
-    def __init__(self):
-        self.redis_client = redis.Redis(
-            host=os.getenv("REDIS_HOST"),
-            port=os.getenv("REDIS_PORT"),
-            db=os.getenv("REDIS_DB"),
-            password=os.getenv("REDIS_PASSWORD"),
-            decode_responses=True,
-        )
-
-    def get_available_nodes(self) -> List[str]:
-        """Obtém todos os nós do cluster com GPU disponível via PBS/TORQUE"""
-        try:
-            cmd = "pbsnodes | awk '/^[a-zA-Z]/{node=$1} /state = free/{free=1} /NOGPU/{free=0} /^$/{if(free==1) print node; free=0}'"
-
-            # Executa comando pbsnodes para listar nós
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, shell=True
-            )
-
-            # Parse a saída do comando para extrair nós com GPU
-            nodes = self._parse_pbsnodes_output(result.stdout)
-
-            return nodes
-        except subprocess.CalledProcessError as e:
-            print(f"Failed to execute pbsnodes: {e}")
-            return []
-
-    def _parse_pbsnodes_output(self, output: str) -> List[str]:
-        """Parse da saída do pbsnodes para encontrar nós com GPU livre"""
-        nodes = []
-
-        for node in output.splitlines():
-            if node.strip() != "":
-                nodes.append(node.strip())
-
-        return nodes
-
-    def _mark_node_as_busy(self, node_name: str):
-        """Marca um nó como ocupado por um job específico"""
-        key = f"cluster:node:{node_name}"
-
-        reservation_id = uuid.uuid4().hex
-
-        self.redis_client.hset(
-            key,
-            mapping={
-                "reservation_id": reservation_id,
-                "timestamp": datetime.now().isoformat(),
-            },
-        )
-
-        return reservation_id
-
-    def mark_node_as_available(self, node_name: str):
-        """Marca um nó como livre"""
-        key = f"cluster:node:{node_name}"
-        self.redis_client.delete(key)
-
-    def get_reservation_id_from_node_name(self, node_name: str) -> str:
-        return self.redis_client.hget(f"cluster:node:{node_name}", "reservation_id")
-
-    def get_available_gpu_node(self) -> str:
-        """Obtém um nó livre com GPU, considerando os nós já em uso por outros workers"""
-        available_nodes = self.get_available_nodes()
-
-        # Filtra nós que já estão em uso por outros workers
-        available_nodes = [
-            node
-            for node in available_nodes
-            if not self.redis_client.exists(f"cluster:node:{node}")
-        ]
-
-        return choice(available_nodes) if available_nodes else ""
-
-    def is_node_reservation_valid(self, node_name: str, reservation_id: str):
-        return (
-            True
-            if self.get_reservation_id_from_node_name(node_name) == reservation_id
-            else False
-        )
-
-    def reserve_available_gpu_node(self) -> str:
-        available_gpu_node = self.get_available_gpu_node()
-
-        if available_gpu_node != "":
-            self._mark_node_as_busy(node_name=available_gpu_node)
-            return available_gpu_node
-
-        return ""
-
-    def cleanup_stale_nodes(self, max_age_hours: int = 7):
-        """Limpa registros antigos de nós ocupados"""
-        threshold = datetime.now().timestamp() - (max_age_hours * 60 * 60)
-
-        # Lista todas as chaves de nós
-        for key in self.redis_client.scan_iter("cluster:node:*"):
-            node_data = self.redis_client.hgetall(key)
-            if node_data:
-                timestamp = datetime.fromisoformat(node_data["timestamp"]).timestamp()
-                if timestamp < threshold:
-                    self.redis_client.delete(key)
-
-
-def delete_hpc_job(job_id: str):
-    if not job_id or job_id.startswith("-"):
-        return
-
-    subprocess.run(
-        ["qdel", job_id],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
 
 
 def replace_job_id_in_template(script_content: str):
@@ -147,11 +24,6 @@ def replace_job_id_in_template(script_content: str):
 
     script_content = script_content.replace("{{job_id}}", job_id)
 
-    return script_content
-
-
-def replace_node_name_in_template(script_content: str, node_name: str):
-    script_content = script_content.replace("{{node_name}}", node_name)
     return script_content
 
 
@@ -293,22 +165,22 @@ def generate_pbs_script(
     conf_formats,
     structure_formats,
     filename,
-    node_name,
 ):
     """
     Generates a PBS script for chemical processing by replacing the necessary variables.
 
     Parameters:
-    - template_path: Path to the PBS template file.
-    - pdf2chemicals_path: Path to the pdf2chemicals script.
     - pdf_path: Path to the PDF to be processed.
     - output_dir: Directory where the results will be saved.
-    - json_prefix: Prefix for the output JSON file.
+    - filename: Prefix for the output JSON file.
     """
     script_content = get_pbs_script_content()
 
     script_content = replace_job_id_in_template(script_content)
-    script_content = replace_node_name_in_template(script_content, node_name)
+    # #PBS -d sets PBS_O_WORKDIR. The MOM must already have this path.
+    script_content = script_content.replace(
+        "{{torque_user_home}}", os.environ["TORQUE_USER_HOME"]
+    )
     script_content = replace_java_home_in_template(script_content)
     script_content = replace_conda_env_in_template(script_content)
     script_content = replace_pdf2chemicals_path_in_template(script_content)
@@ -327,100 +199,114 @@ def generate_pbs_script(
     return script_path
 
 
-# Top-level attribute lines in `qstat -f` are indented with 4 spaces:
-#     job_state = C
-# Continuation lines of long values start with a tab, so they are not matched.
-_ATTR_RE = re.compile(r"^ {4}([A-Za-z_][\w.\-]*) = (.*)$")
-_UNKNOWN_JOB_MARKER = "Unknown Job Id"
-_QSTAT_TIMEOUT_SECONDS = 30
+_GATEWAY_TIMEOUT_SECONDS = 60
+_JOB_STATUSES = ("COMPLETED", "FAILED", "RUNNING", "QUEUED", "UNKNOWN")
 
 
-def _parse_qstat_full(output: str) -> dict[str, str]:
-    """Parse the output of `qstat -f <job_id>` into a {attribute: value} dict."""
-    attrs: dict[str, str] = {}
-    for line in output.splitlines():
-        match = _ATTR_RE.match(line)
-        if match:
-            attrs[match.group(1)] = match.group(2).strip()
-    return attrs
+def _gateway_token() -> str:
+    token = os.environ.get("TORQUE_GATEWAY_TOKEN", "").strip()
+    if token:
+        return token
+    token_file = os.environ.get("TORQUE_GATEWAY_TOKEN_FILE", "")
+    if not token_file:
+        raise RuntimeError("TORQUE_GATEWAY_TOKEN or TORQUE_GATEWAY_TOKEN_FILE must be set")
+    with open(token_file) as fh:
+        token = fh.read().strip()
+    if not token:
+        raise RuntimeError("Torque gateway token file is empty")
+    return token
 
 
-def _parse_exit_status(value: str | None) -> int | None:
-    """Convert the `exit_status` attribute to int (Torque may report negative codes)."""
-    if value is None:
-        return None
+def _gateway_call(method: str, path: str, body: dict | None = None):
+    """Call the gateway. Returns (HTTP status or None, JSON object).
+
+    None means the gateway was not reached. Callers must not treat that as a
+    finished job.
+    """
+    base = os.environ.get("TORQUE_GATEWAY_URL", "").rstrip("/")
+    if not base:
+        return None, {}
+
+    data = None
+    headers = {"Authorization": "Bearer " + _gateway_token()}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = urllib.request.Request(
+        base + path,
+        data=data,
+        headers=headers,
+        method=method,
+    )
     try:
-        return int(value)
-    except ValueError:
-        return None
+        with urllib.request.urlopen(request, timeout=_GATEWAY_TIMEOUT_SECONDS) as response:
+            raw = response.read().decode("utf-8")
+            payload = json.loads(raw) if raw else {}
+            if not isinstance(payload, dict):
+                return response.status, {}
+            return response.status, payload
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8")
+        try:
+            payload = json.loads(raw) if raw else {}
+        except ValueError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return exc.code, payload
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return None, {}
+
+
+def _job_path(job_id: str) -> str:
+    return "/jobs/" + urllib.parse.quote(job_id, safe="")
+
+
+def submit_pbs_script(script_text: str) -> str:
+    """POST the rendered script. PBS directives are inside the file, not qsub flags."""
+    if not script_text or not script_text.strip():
+        raise ValueError("PBS script is empty")
+
+    status, payload = _gateway_call("POST", "/jobs", {"script": script_text})
+    job_id = payload.get("job_id")
+    if status != 201 or not job_id:
+        detail = payload.get("detail") or payload.get("error") or "gateway submit failed"
+        raise RuntimeError(str(detail))
+    return str(job_id)
+
+
+def delete_hpc_job(job_id: str):
+    if not job_id or job_id.startswith("-"):
+        return
+    _gateway_call("DELETE", _job_path(job_id))
 
 
 def get_pbs_job_status(job_id: str) -> str:
-    """Get the status of a PBS/Torque job.
+    """Status from the gateway: COMPLETED, FAILED, RUNNING, QUEUED, or UNKNOWN.
 
-    Returns 'COMPLETED', 'FAILED', 'RUNNING', 'QUEUED' or 'UNKNOWN'.
-
-    Args:
-        job_id (str): Job ID to check
-
-    Returns:
-        str: Simplified job status.
+    A 404 NOT_FOUND is COMPLETED. That is the previous Unknown Job Id fallback:
+    the server has purged the job after keep_completed. A connection error stays
+    UNKNOWN so the monitor retries.
     """
     if not job_id or job_id.startswith("-"):
         return "UNKNOWN"
 
-    try:
-        result = subprocess.run(
-            ["qstat", "-f", job_id],
-            capture_output=True,
-            text=True,
-            timeout=_QSTAT_TIMEOUT_SECONDS,
-        )
-    except FileNotFoundError:
-        print("Error: qstat not found. Check TORQUE installation.")
+    status, payload = _gateway_call("GET", _job_path(job_id))
+    if status is None:
         return "UNKNOWN"
-    except subprocess.TimeoutExpired:
-        print(f"Error: qstat timed out for job {job_id}.")
-        return "UNKNOWN"
-
-    if result.returncode != 0:
-        if _UNKNOWN_JOB_MARKER in result.stderr:
-            # The server no longer knows the job (purged after keep_completed).
-            # Same fallback as the previous implementation.
-            return "COMPLETED"
-        # Connection/authentication errors must not be reported as a finished job.
-        print(f"Error: qstat failed for job {job_id}: {result.stderr.strip()}")
-        return "UNKNOWN"
-
-    attrs = _parse_qstat_full(result.stdout)
-    state = attrs.get("job_state")
-    exit_status = _parse_exit_status(attrs.get("exit_status"))
-
-    # exit_status is only set once the job has finished
-    if exit_status is not None:
-        return "COMPLETED" if exit_status == 0 else "FAILED"
-
-    if state == "C":
-        # Finished but exit_status could not be read: previous default
+    # Purged after keep_completed. Same fallback as the old "Unknown Job Id" path.
+    if status == 404 and payload.get("status") == "NOT_FOUND":
         return "COMPLETED"
-
-    if state == "Q":
-        return "QUEUED"
-
-    if state is None:
+    if status != 200:
         return "UNKNOWN"
 
-    # R, E (still exiting), H, T, W, S -> RUNNING (same mapping as before)
-    return "RUNNING"
+    job_status = payload.get("status")
+    if job_status in _JOB_STATUSES:
+        return job_status
+    return "UNKNOWN"
 
 
 def is_pbs_job_completed(job_id: str) -> bool:
-    """Checks if a PBS/Torque job has finished (successfully or not).
-
-    Args:
-        job_id (str): Job ID to be checked
-
-    Returns:
-        bool: True if the job is complete, False otherwise.
-    """
+    """True when the job has finished, successfully or not."""
     return get_pbs_job_status(job_id) in ("COMPLETED", "FAILED")

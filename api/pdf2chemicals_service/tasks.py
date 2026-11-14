@@ -5,7 +5,6 @@
 import os
 import json
 import logging
-import subprocess
 from uuid import uuid4
 
 from celery import chain, group, shared_task
@@ -18,18 +17,16 @@ from tasks.util.tasks import ChainedTask, ChainedFinalTask
 from chemicals.tasks import post_chemical
 
 from pdf2chemicals_service.cleanup.cleanup_helpers import (
-    release_gpu_node,
     cancel_hpc_job,
     remove_files,
 )
 from pdf2chemicals_service.cleanup.cleanup import cleanup_pdf2chemicals_resources
 from .util.util import file_exists
 from .cluster import (
-    ResourceUnavailable,
-    ClusterNodeManager,
     generate_pbs_script,
     is_pbs_job_completed,
     get_pbs_job_status,
+    submit_pbs_script,
 )
 
 
@@ -467,7 +464,10 @@ def _queue_cleanup(parent_task_id, reason="unknown", cleanup_data=None):
 )
 def create_pbs_script_task(self, *args, **kwargs):
     """
-    Stage 1: Create PBS script and reserve cluster node.
+    Stage 1: Create the PBS script.
+
+    PBS queues the job until a node has 2 processors and 1 GPU. This task does
+    not reserve a node.
 
     - Receives message dict from orchestration (ChainedTask merges args)
     - Creates cleanup_data dict (SOURCE of cleanup data)
@@ -475,7 +475,7 @@ def create_pbs_script_task(self, *args, **kwargs):
     - Returns enhanced message with all previous data
 
     Message In: initial_message from orchestration
-    Message Out: Same + pbs_script_path, node_name, reservation_id, cleanup_data
+    Message Out: Same + pbs_script_path, cleanup_data
     """
 
     parent_task_id = kwargs.get("parent_task_id")
@@ -502,7 +502,7 @@ def create_pbs_script_task(self, *args, **kwargs):
         }
 
     # ============================================
-    # Reserve node and create script
+    # Create script
     # ============================================
 
     try:
@@ -512,17 +512,6 @@ def create_pbs_script_task(self, *args, **kwargs):
 
         os.makedirs(output_abs_dir, exist_ok=True)
 
-        cluster_node_manager = ClusterNodeManager()
-        node_name = cluster_node_manager.reserve_available_gpu_node()
-
-        if not node_name or node_name == "":
-            raise ResourceUnavailable("No GPU nodes available")
-
-        reservation_id = cluster_node_manager.get_reservation_id_from_node_name(
-            node_name
-        )
-
-        # Generate PBS script
         script_path = generate_pbs_script(
             pdf_path=absolute_pdf_path,
             output_dir=output_abs_dir,
@@ -530,24 +519,18 @@ def create_pbs_script_task(self, *args, **kwargs):
             conf_formats=conf_formats,
             structure_formats=structure_formats,
             filename=output_filename,
-            node_name=node_name,
         )
 
         if not file_exists(script_path):
-            release_gpu_node(node_name)
             raise FileExistsError(f"PBS script not created: {script_path}")
 
-        # Validate reservation
-        if not cluster_node_manager.is_node_reservation_valid(
-            node_name, reservation_id
-        ):
-            remove_files(script_path)
-            release_gpu_node(node_name)
-            raise KeyError("Reservation invalid")
+        logger.info(f"[PBS_SCRIPT] Script created at {script_path}")
 
-        logger.info(
-            f"[PBS_SCRIPT] ✓ Script created at {script_path} (node: {node_name})"
-        )
+        cleanup_data = {
+            "pbs_script_path": script_path,
+            "json_filepath": json_filepath,
+            "pdf_path": absolute_pdf_path,
+        }
 
         # ============================================
         # Check revocation before returning
@@ -555,17 +538,6 @@ def create_pbs_script_task(self, *args, **kwargs):
 
         if self.check_revocation(parent_task_id):
             logger.warning("[PBS_SCRIPT] Revoked after script creation")
-
-            release_gpu_node(node_name)
-
-            cleanup_data = {
-                "node_name": node_name,
-                "reservation_id": reservation_id,
-                "pbs_script_path": script_path,
-                "json_filepath": json_filepath,
-                "pdf_path": absolute_pdf_path,
-            }
-
             return {
                 **kwargs,
                 "status": "revoked",
@@ -574,25 +546,11 @@ def create_pbs_script_task(self, *args, **kwargs):
                 "cleanup_data": cleanup_data,
             }
 
-        # ============================================
-        # Return enhanced message
-        # ============================================
-
-        cleanup_data = {
-            "node_name": node_name,
-            "reservation_id": reservation_id,
-            "pbs_script_path": script_path,
-            "json_filepath": json_filepath,
-            "pdf_path": absolute_pdf_path,
-        }
-
         return {
             **kwargs,
             "status": "success",
             "stage": "pbs_script",
             "pbs_script_path": script_path,
-            "node_name": node_name,
-            "reservation_id": reservation_id,
             "json_filepath": json_filepath,
             "cleanup_data": cleanup_data,
         }
@@ -627,14 +585,11 @@ def send_pdf2chemicals_hpc_task(self, *args, **kwargs):
     parent_task_id = kwargs.get("parent_task_id")
     pbs_script_path = kwargs.get("pbs_script_path")
     cleanup_data = kwargs.get("cleanup_data", {})
-    node_name = kwargs.get("node_name")
 
     logger.info(f"[HPC_SUBMIT] Submitting PBS job for {parent_task_id}")
 
     if self.check_revocation(parent_task_id):
         logger.warning("[HPC_SUBMIT] Revoked before submission")
-
-        release_gpu_node(node_name)
 
         return {
             **kwargs,
@@ -658,7 +613,6 @@ def send_pdf2chemicals_hpc_task(self, *args, **kwargs):
         if self.check_revocation(parent_task_id):
             logger.warning("[HPC_SUBMIT] Revoked after submission, killing job")
 
-            release_gpu_node(node_name)
             cancel_hpc_job(job_id)
 
             return {
@@ -704,7 +658,7 @@ def monitor_pdf2chemicals_job(self, *args, **kwargs):
     - Respects task TTL (1 hour soft limit)
     - Periodic revocation checks
 
-    Message In: {pbs_script_path, node_name, job_id, cleanup_data, ...}
+    Message In: {pbs_script_path, job_id, cleanup_data, ...}
     Message Out: Same + job_completion confirmation
 
     Retry Behavior:
@@ -716,30 +670,22 @@ def monitor_pdf2chemicals_job(self, *args, **kwargs):
 
     parent_task_id = kwargs.get("parent_task_id")
     job_id = kwargs.get("job_id")
-    node_name = kwargs.get("node_name")
 
-    logger.info(f"[MONITOR] Checking job {job_id} on node {node_name}")
+    logger.info(f"[MONITOR] Checking job {job_id}")
 
     try:
         # Check if task was revoked
         if self.check_revocation(parent_task_id):
             logger.warning("[MONITOR] Task revoked, cancelling job")
 
-            release_gpu_node(node_name)
             cancel_hpc_job(job_id)
 
             return {**kwargs, "status": "revoked", "stage": "monitor", "revoked": True}
 
         # Check job completion status
         if is_pbs_job_completed(job_id):
-            logger.info(f"[MONITOR] Job {job_id} completed on {node_name}")
+            logger.info(f"[MONITOR] Job {job_id} completed")
 
-            # ✅ CRITICAL FIX: Release GPU immediately on success
-            # Job finished = GPU no longer needed
-            # Don't wait for async cleanup task
-            release_gpu_node(node_name)
-
-            # ✅ Return standard message dict (serializable)
             return {
                 **kwargs,
                 "status": "success",
@@ -749,9 +695,7 @@ def monitor_pdf2chemicals_job(self, *args, **kwargs):
 
         # Job still running
         logger.debug(f"[MONITOR] Job {job_id} still running, will retry")
-        raise TimeoutError(
-            f"Job {job_id} on {node_name} still running, waiting for completion"
-        )
+        raise TimeoutError(f"Job {job_id} still running, waiting for completion")
 
     except TimeoutError:
         # ✅ Celery's autoretry_for=(TimeoutError,) catches this
@@ -785,9 +729,8 @@ def load_chemical_from_json(self, *args, **kwargs):
     parent_task_id = kwargs.get("parent_task_id")
     job_id = kwargs.get("job_id")
     json_filepath = kwargs.get("json_filepath")
-    node_name = kwargs.get("node_name", "unknown")
 
-    logger.info(f"[LOAD_JSON] Loading chemicals from job {job_id} on {node_name}")
+    logger.info(f"[LOAD_JSON] Loading chemicals from job {job_id}")
 
     try:
         # Check revocation
@@ -1059,36 +1002,11 @@ def return_pdf2chemicals_task_final_result(self, *args, **kwargs):
 
 def _submit_pbs_job(pbs_script_path):
     """
-    Submit PBS script to cluster and return job ID.
+    Send the rendered PBS script to the Torque gateway and return the job id.
 
-    Args:
-        pbs_script_path: Path to PBS script file
-
-    Returns:
-        str: Job ID returned by qsub
-
-    Raises:
-        subprocess.CalledProcessError: If qsub fails
+    Every #PBS directive is already in the file. The gateway runs qsub with
+    that text on stdin and no extra flags.
     """
-
-    # -d sets PBS_O_WORKDIR. The job script cds there, and that path must exist on the MOM.
-    cmd = ["qsub", "-d", os.environ["TORQUE_USER_HOME"], pbs_script_path]
-
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-
-    if result.returncode != 0:
-        raise subprocess.CalledProcessError(
-            result.returncode, cmd, output=result.stdout, stderr=result.stderr
-        )
-
-    job_id = result.stdout.strip()
-    if not job_id:
-        raise ValueError("qsub returned empty job_id")
-
-    return job_id
+    with open(pbs_script_path, "r") as script_file:
+        script_text = script_file.read()
+    return submit_pbs_script(script_text)

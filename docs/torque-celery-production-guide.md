@@ -5,16 +5,15 @@
 
 ## This repo
 
-The worker service `pdf2chemicals-celery-worker` follows this guide with these differences:
+Torque does not run in the Celery worker. A separate `torque-gateway` service owns the clients. The worker calls it over HTTP. Run Compose with `docker compose --env-file api/.env`.
 
-- The worker image is chosen with `PDF2CHEMICALS_WORKER_DOCKERFILE`. Default is `api/Dockerfile.ubuntu` (same OS family as the PBS host, Python 3.12). Alternatives are `api/Dockerfile.debian` and `api/Dockerfile.rocky`. Django-api and django-worker keep `api/Dockerfile`. Build context is `api`. Run Compose with `docker compose --env-file api/.env`.
-- Application workdir is `/src`. Celery command is `-A labsoa_website_backend worker --queues=pdf2chemicals_tasks --prefetch-multiplier=1 --autoscale=3,0 --max-tasks-per-child=1 --loglevel=INFO`.
-- The service user's primary group is `torque_queue_batch`. Supplementary group is `DATA_GROUP` / `DATA_GID` (`labsoa_website_backend_data`, `1844`) so the process can write `DATA_ROOT_DIR`.
-- `qsub` is called as `qsub -d "$TORQUE_USER_HOME" <script>`. The PBS template runs `cd $PBS_O_WORKDIR`, and that directory must exist on the MOM. `TORQUE_USER_HOME` is a path, not a mount.
-- `server_name` is written from `TORQUE_SERVER` (`feynman`). `extra_hosts` maps that name to `TORQUE_GATEWAY_IPV4` (the project-network gateway, not `172.17.0.1`). Fill `TORQUE_GATEWAY_IPV4` from `docker network inspect`.
-- `get_pbs_job_status` and `is_pbs_job_completed` live in `api/pdf2chemicals_service/cluster.py`. There is no `pbs_job_status.py`. `pbsnodes | awk` is unchanged.
-- The tarball is `api/vendor/torque-6.1.3.tar.gz` and is gitignored. `TORQUE_SHA256` in `api/.env` is optional.
-- Hostname stays `pdf2chemicals_worker`. Register that name on the server in `/etc/hosts` and `/etc/hosts.equiv`, and set `keep_completed = 86400`, before relying on `qsub`.
+- Gateway image: `api/torque-gateway/Dockerfile`, CentOS 7, Python 3.6 from the `python3` package. Torque 6.1.3 clients come from `api/vendor/torque-6.1.3.tar.gz` (gitignored). `TORQUE_SHA256` in `api/.env` checks the tarball. Build context is `api`.
+- The gateway account uses `SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER`, `_UID`, and `_GID`, plus secondary group `torque_queue_batch` at `TORQUE_QUEUE_GID`. Those two GIDs must be different numbers. Fill `TORQUE_QUEUE_GID` from `id svc_pdf2chemicals_prod` on the master. The entrypoint writes `TORQUE_SERVER` (`feynman`) to `server_name`, starts `trqauthd` as root, then `gosu` to the service user.
+- Gateway hostname `TORQUE_GATEWAY_HOSTNAME` (`pdf2chemicals-torque-gw`), address `TORQUE_GATEWAY_IPV4` (`192.168.115.11`). `extra_hosts` on the gateway maps `TORQUE_SERVER` to `TORQUE_SERVER_IPV4` (feynman on the project bridge). Fill `TORQUE_SERVER_IPV4` from `docker network inspect` before starting. Register the gateway hostname, not the worker, in the server's `/etc/hosts` and `/etc/hosts.equiv`. `keep_completed = 86400` stays a server setting.
+- Worker image is `api/Dockerfile`, the same recipe as django-api and django-worker. It runs as the service user name so the primary group and `DATA_GROUP` / `DATA_GID` both apply. No `qsub` in this container. Static address stays `192.168.115.10`. Celery command is `-A labsoa_website_backend worker --queues=pdf2chemicals_tasks --prefetch-multiplier=1 --autoscale=3,0 --max-tasks-per-child=1 --loglevel=INFO`.
+- The worker POSTs the rendered `.pbs` file to `http://torque-gateway:8080/jobs`. Every PBS directive is in that file (`-N`, `-d`, `-l nodes=1:ppn=2:gpus=1`, `-l walltime`). The gateway runs `qsub` with the script on stdin and no flags. `#PBS -d` is `TORQUE_USER_HOME`, which the MOM must already have. The gateway does not mount the data directory.
+- `get_pbs_job_status` and `submit_pbs_script` live in `api/pdf2chemicals_service/cluster.py`. qstat parsing lives in `api/torque-gateway/gateway.py`. A gateway `404` (`NOT_FOUND`) is `COMPLETED`. Connection errors stay `UNKNOWN`. The worker does not reserve nodes. PBS queues until a node has 2 processors and 1 GPU. Redis stays because Django cache uses it.
+- The bearer token file is `secrets/torque_gateway_token` (not committed), mounted into the gateway and the worker.
 
 ---
 

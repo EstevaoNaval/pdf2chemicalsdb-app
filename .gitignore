@@ -147,6 +147,9 @@ celerybeat.pid
 
 # Torque client source. Same tarball as the server; verified at image build by TORQUE_SHA256.
 api/vendor/*.tar.gz
+
+# Bearer token mounted into torque-gateway and the pdf2chemicals worker.
+secrets/
 .venv
 env/
 venv/

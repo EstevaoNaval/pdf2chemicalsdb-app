@@ -80,19 +80,57 @@ services:
         max-size: "10m" # Limita o tamanho dos logs para 10MB
         max-file: "3" # Mantém no máximo 3 arquivos de log
 
-  # Serviço Celery Worker para PDF (com acesso ao Django e ao pdf_processor).
-  # Torque clients and the service user live in the image. No host passwd, spool, or /opt/torque mounts.
+  # Torque clients live here. The Celery worker reaches this service over HTTP.
+  torque-gateway:
+    build:
+      context: api
+      dockerfile: torque-gateway/Dockerfile
+      args:
+        - SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}
+        - SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_UID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_UID}
+        - SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_GID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_GID}
+        - TORQUE_QUEUE_GID=${TORQUE_QUEUE_GID:?set TORQUE_QUEUE_GID in api/.env}
+        - TORQUE_SHA256=${TORQUE_SHA256:-}
+    image: pdf2chemicals-torque-gateway:${IMAGE_TAG:-latest}
+    hostname: ${TORQUE_GATEWAY_HOSTNAME:?set TORQUE_GATEWAY_HOSTNAME in api/.env}
+    init: true
+    restart: unless-stopped
+    env_file:
+      - api/.env
+    environment:
+      - TORQUE_SERVER=${TORQUE_SERVER}
+      - GATEWAY_TOKEN_FILE=/run/secrets/torque_gateway_token
+    secrets:
+      - torque_gateway_token
+    networks:
+      bridge-network:
+        ipv4_address: ${TORQUE_GATEWAY_IPV4:?set TORQUE_GATEWAY_IPV4 in api/.env}
+    extra_hosts:
+      - ${TORQUE_SERVER}:${TORQUE_SERVER_IPV4:?set TORQUE_SERVER_IPV4 in api/.env}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health > /dev/null"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Serviço Celery Worker para PDF. Submits jobs through torque-gateway.
   pdf2chemicals-celery-worker:
     build:
       context: api
-      dockerfile: ${PDF2CHEMICALS_WORKER_DOCKERFILE:-Dockerfile.ubuntu}
+      dockerfile: Dockerfile
       args:
-        - SVC_USER=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}
-        - SVC_UID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_UID}
-        - SVC_GID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_GID}
-        - DATA_GID=${DATA_GID}
+        - USER=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}
+        - UID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_UID}
+        - GID=${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_GID}
         - DATA_GROUP=${DATA_GROUP}
-        - TORQUE_SHA256=${TORQUE_SHA256:-}
+        - DATA_GID=${DATA_GID}
+    user: ${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}
     restart: unless-stopped
     hostname: ${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_HOSTNAME}
     init: true
@@ -105,22 +143,22 @@ services:
     networks:
       bridge-network:
         ipv4_address: ${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_HOSTNAME_IPV4}
-    extra_hosts:
-      - ${TORQUE_SERVER}:${TORQUE_GATEWAY_IPV4}
     volumes:
       - ${DATA_ROOT_DIR}:${DATA_ROOT_DIR}:rw
     env_file:
-      - .env
+      - api/.env
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
+      - ENTRYPOINT_PATH=/src/scripts/docker-pdf2chemicals-celery-entrypoint.sh
+      - TORQUE_GATEWAY_URL=http://torque-gateway:8080
+      - TORQUE_GATEWAY_TOKEN_FILE=/run/secrets/torque_gateway_token
+    secrets:
+      - torque_gateway_token
     depends_on:
-      - rabbitmq
-    healthcheck:
-      test: ["CMD-SHELL", "gosu svc_pdf2chemicals_prod qstat -q > /dev/null"]
-      interval: 60s
-      timeout: 20s
-      retries: 3
-      start_period: 30s
+      rabbitmq:
+        condition: service_started
+      torque-gateway:
+        condition: service_healthy
     logging:
       driver: "json-file" # Default logging driver
       options:
@@ -217,6 +255,10 @@ networks:
     ipam:
       config:
         - subnet: ${LABSOA_WEBSITE_SUBNET}
+
+secrets:
+  torque_gateway_token:
+    file: ./secrets/torque_gateway_token
 
 volumes:
   redis-data:

@@ -1,25 +1,10 @@
 import logging
 
-from pdf2chemicals_service.cluster import ClusterNodeManager, delete_hpc_job
+from pdf2chemicals_service.cluster import delete_hpc_job
 from pdf2chemicals_service.util.util import remove_file, file_exists
 
 
 logger = logging.getLogger(__name__)
-
-
-def release_gpu_node(node_name):
-    """Release GPU node to available pool."""
-    if not node_name:
-        return False
-    
-    try:
-        cluster_manager = ClusterNodeManager()
-        cluster_manager.mark_node_as_available(node_name)
-        logger.info(f"[CLEANUP] GPU node {node_name} released")
-        return True
-    except Exception as e:
-        logger.error(f"[CLEANUP] Failed to release GPU {node_name}: {e}")
-        return False
 
 
 def cancel_hpc_job(job_id):

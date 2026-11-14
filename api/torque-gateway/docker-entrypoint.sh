@@ -1,14 +1,15 @@
 #!/bin/bash
-# Start trqauthd as root, then replace this process with the service user command.
-# Input: TORQUE_SERVER (hostname, e.g. feynman), SVC_USER, and the image CMD.
-# Output: Celery (or another command) running as SVC_USER, with trqauthd resident.
+# Start trqauthd as root, then replace this process with the gateway as the service user.
+# Input: TORQUE_SERVER (hostname, e.g. feynman) and SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER.
+# Output: gateway.py running as that user, with trqauthd resident.
 set -euo pipefail
 
 : "${TORQUE_SERVER:?TORQUE_SERVER must be set (server name, e.g. feynman)}"
-: "${SVC_USER:?SVC_USER must be set}"
+: "${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER:?SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER must be set}"
 
 SPOOL=/var/spool/torque
 
+# Point the Torque client commands to the server (read from $PBS_HOME/server_name).
 mkdir -p "${SPOOL}"
 echo "${TORQUE_SERVER}" > "${SPOOL}/server_name"
 
@@ -21,6 +22,7 @@ if ! trqauthd; then
   exit 1
 fi
 
+# Wait up to ~10s for trqauthd (unix socket or loopback port 15005).
 ready=0
 for _ in $(seq 1 20); do
   if [ -S /tmp/trqauthd-unix ] || (exec 3<>/dev/tcp/127.0.0.1/15005) 2>/dev/null; then
@@ -34,4 +36,4 @@ if [ "${ready}" -ne 1 ]; then
   exit 1
 fi
 
-exec gosu "${SVC_USER}" "$@"
+exec gosu "${SVC_PDF2CHEMICALS_PROD_CELERY_WORKER_USER}" "$@"

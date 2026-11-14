@@ -3,7 +3,6 @@ import logging
 from celery import shared_task
 
 from pdf2chemicals_service.cleanup.cleanup_helpers import (
-    release_gpu_node,
     cancel_hpc_job,
     remove_files,
 )
@@ -27,7 +26,6 @@ def cleanup_pdf2chemicals_resources(self, cleanup_data):
     - JSON files
     - PBS scripts
     - PDFs
-    - HPC TORQUE nodes
     - HPC TORQUE Job
     """
 
@@ -42,10 +40,6 @@ def cleanup_pdf2chemicals_resources(self, cleanup_data):
     # Clean PDF
     pdf_path = cleanup_data.get("pdf_path")
     remove_files(pdf_path)
-
-    # Release cluster node
-    node_name = cleanup_data.get("node_name")
-    release_gpu_node(node_name)
 
     # Kill HPC job
     job_id = cleanup_data.get("job_id")
