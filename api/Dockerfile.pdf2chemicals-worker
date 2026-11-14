@@ -21,7 +21,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential libtool autoconf automake pkg-config \
-      libssl-dev libxml2-dev libboost-dev \
+      flex bison \
+      libssl-dev libxml2-dev zlib1g-dev libboost-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -29,13 +30,19 @@ COPY vendor/torque-${TORQUE_VERSION}.tar.gz /src/
 
 # Plain make: parallel Torque builds are unreliable.
 # --disable-gcc-warnings: gcc 12 warns on this 2018 tree and the default is to fail.
+# ac_cv_lib_pthread_pthread_create: Torque sets CC=g++ before AC_CHECK_LIB(pthread),
+# so the probe fails on bookworm even though libpthread is installed. "yes" keeps
+# the success branch, which still links -lpthread -lrt.
+# sed: a tarball packed from a Windows git checkout has CRLF, which breaks autogen.sh.
 RUN if [ -n "${TORQUE_SHA256}" ]; then \
       echo "${TORQUE_SHA256}  torque-${TORQUE_VERSION}.tar.gz" | sha256sum -c -; \
     fi \
  && tar xzf torque-${TORQUE_VERSION}.tar.gz \
+ && find torque-${TORQUE_VERSION} -type f -not -path '*/.git/*' -exec sed -i 's/\r$//' {} + \
  && cd torque-${TORQUE_VERSION} \
  && { [ -x ./configure ] || ./autogen.sh; } \
- && ./configure --prefix=/usr/local --with-server-home=/var/spool/torque \
+ && ac_cv_lib_pthread_pthread_create=yes \
+      ./configure --prefix=/usr/local --with-server-home=/var/spool/torque \
       --disable-server --disable-mom --disable-gcc-warnings \
  && make \
  && make install DESTDIR=/stage
