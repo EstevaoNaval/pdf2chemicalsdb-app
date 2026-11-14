@@ -1,7 +1,7 @@
 services:
   web:
     build:
-      context: frontend
+      context: web
       dockerfile: Dockerfile
     ports:
       - "127.0.0.1:3000:3000"
@@ -20,7 +20,7 @@ services:
           memory: "0.6G"
     user: ${DJANGO_API_UID}:${DATA_GID}
     build:
-      context: backend
+      context: api
       dockerfile: Dockerfile
       args:
         - USER=${DJANGO_API_USER}
@@ -50,7 +50,7 @@ services:
 
   django-worker:
     build:
-      context: backend
+      context: api
       dockerfile: Dockerfile
       args:
         - USER=${DJANGO_WORKER_USER}
@@ -129,7 +129,7 @@ services:
 
   db:
     build:
-      context: backend/db
+      context: api/db
       dockerfile: Dockerfile
     deploy:
       resources:
