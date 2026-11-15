@@ -1,4 +1,5 @@
 import logging
+import os
 from io import BytesIO
 
 import requests
@@ -7,6 +8,54 @@ from django.conf import settings
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
+
+
+class _WorkerApi:
+    """Knox session for django-worker chemical writes.
+
+    `_worker_api` is the one instance. post_chemical, patch_conformation, and
+    patch_depiction call it. It holds the current token and reuses it until a
+    401, then logs in once more. Input: a requests method, an absolute URL, and
+    that method's body kwargs. Output: the response after raise_for_status.
+    """
+
+    def __init__(self):
+        self.token = None
+
+    def __call__(self, method, url, **kwargs):
+        email = os.environ.get("DJANGO_WORKER_API_EMAIL")
+        password = os.environ.get("DJANGO_WORKER_API_PASSWORD")
+        if not email or not password:
+            raise RuntimeError(
+                "DJANGO_WORKER_API_EMAIL and DJANGO_WORKER_API_PASSWORD must be set"
+            )
+
+        for attempt in (1, 2):
+            if self.token is None:
+                login = requests.post(
+                    f"{settings.API_BASE_URL}/api/auth/login/",
+                    json={"username": email, "password": password},
+                )
+                login.raise_for_status()
+                self.token = login.json()["token"]
+
+            response = method(
+                url,
+                headers={"Authorization": f"Bearer {self.token}"},
+                **kwargs,
+            )
+            if response.status_code != 401:
+                response.raise_for_status()
+                return response
+
+            self.token = None
+            if attempt == 2:
+                response.raise_for_status()
+
+        return response
+
+
+_worker_api = _WorkerApi()
 
 # One MIME per text format written into JSON ``conformation``.
 _CONF_MIME = {
@@ -54,15 +103,11 @@ def patch_conformation(self, chemical_id: str, conformations: dict[str, list[str
     if not files:
         return
 
-    r = requests.patch(
-        url=settings.API_BASE_URL+f"/api/chemicals/admin/{chemical_id}/",
+    _worker_api(
+        requests.patch,
+        f"{settings.API_BASE_URL}/api/chemicals/{chemical_id}/",
         files=files,
-        headers={
-            'Authorization': 'Bearer {}'.format(settings.CELERY_AUTH_TOKEN)
-        }
     )
-    
-    r.raise_for_status()
 
 @shared_task(
     name='chemicals.tasks.django_tasks_patch_depiction', 
@@ -83,15 +128,11 @@ def patch_depiction(self, chemical_id, depiction: str):
         "image/svg+xml"
     )
     
-    r = requests.patch(
-        url=settings.API_BASE_URL+f"/api/chemicals/admin/{chemical_id}/",
+    _worker_api(
+        requests.patch,
+        f"{settings.API_BASE_URL}/api/chemicals/{chemical_id}/",
         files=files,
-        headers={
-            'Authorization': 'Bearer {}'.format(settings.CELERY_AUTH_TOKEN)
-        }
     )
-    
-    r.raise_for_status()
 
 @shared_task(
     name='chemicals.tasks.django_tasks_post_chemical', 
@@ -109,15 +150,11 @@ def post_chemical(self, chemical: dict, user_id: int):
     
     chemical['user'] = user_id    
     
-    r = requests.post(
-        url=settings.API_BASE_URL+"/api/chemicals/admin/",
+    r = _worker_api(
+        requests.post,
+        f"{settings.API_BASE_URL}/api/chemicals/",
         json=chemical,
-        headers={
-            'Authorization': 'Bearer {}'.format(settings.CELERY_AUTH_TOKEN)
-        }
     )
-    
-    r.raise_for_status()
     
     chemical_id = r.json().get("api_id")
     

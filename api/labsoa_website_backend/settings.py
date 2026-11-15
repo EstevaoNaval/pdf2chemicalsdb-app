@@ -273,7 +273,6 @@ CELERY_RESULT_BACKEND = f"{os.getenv('CELERY_RESULT_BACKEND_SCHEMA')}://{os.gete
 CELERY_CACHE_BACKEND = 'default'
 CELERY_TIMEZONE = "America/Sao_Paulo"
 CELERY_TASK_TRACK_STARTED = True
-CELERY_AUTH_TOKEN = os.getenv('CELERY_AUTH_TOKEN')
 CELERY_BROKER_TRANSPORT_OPTIONS = {
     'queue_durable': True,
     'message_persistent': True,

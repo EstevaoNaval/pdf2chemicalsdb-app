@@ -7,6 +7,9 @@ python manage.py makemigrations --noinput || exit 1
 echo "Apply database migrations"
 python manage.py migrate --noinput || exit 1
 
+echo "Ensure django-worker API user"
+python manage.py create_django_worker_api_user || exit 1
+
 # Criar o site frontend, se necessário
 echo "Running create_frontend_site"
 python manage.py create_frontend_site

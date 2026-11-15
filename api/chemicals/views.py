@@ -229,7 +229,7 @@ class AutocompleteSearchView(generics.ListAPIView):
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = ChemicalAutocompleteSearchFilter
     
-class ChemicalReadOnlyViewSet(viewsets.ReadOnlyModelViewSet):
+class ChemicalViewSet(viewsets.ModelViewSet):
     queryset = Chemical.objects.all()
     serializer_class = ChemicalSerializer
     lookup_field = 'api_id'
@@ -237,8 +237,14 @@ class ChemicalReadOnlyViewSet(viewsets.ReadOnlyModelViewSet):
     ordering_fields = ORDERING_FIELDS_LIST
     filterset_class = ChemicalAdvancedSearchFilter
     ordering = ['api_id']
-    permission_classes = [permissions.AllowAny]
-    
+
+    def get_permissions(self):
+        # Catalog GET stays public. DjangoModelPermissions maps GET to
+        # view_chemical, and an anonymous user fails that check.
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [permissions.DjangoModelPermissions()]
+
     @method_decorator(cache_page(CACHE_TTL))
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -286,12 +292,3 @@ class ChemicalSummaryReadOnlyViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = self._exclude_null_entries_from_ordering(ordering, queryset)
         
         return queryset
-
-class ChemicalAdminViewSet(viewsets.ModelViewSet):
-    queryset = Chemical.objects.all()
-    serializer_class = ChemicalSerializer
-    lookup_field = 'api_id'
-    filter_backends = [filters.OrderingFilter]
-    ordering_fields = ['api_id']
-    ordering = ['api_id']
-    permission_classes = [permissions.IsAdminUser]

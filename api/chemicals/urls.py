@@ -4,8 +4,7 @@ from rest_framework.routers import DefaultRouter
 
 from chemicals.views import (
     ChemicalPropListView,
-    ChemicalReadOnlyViewSet, 
-    ChemicalAdminViewSet, 
+    ChemicalViewSet, 
     AutocompleteSearchView,
     ChemicalSummaryReadOnlyViewSet,
     ChemicalSearchView,
@@ -17,9 +16,8 @@ from chemicals.views import (
 
 router = DefaultRouter()
 router.register(r'summary', ChemicalSummaryReadOnlyViewSet, basename='chemical-summary')
-router.register(r'admin', ChemicalAdminViewSet, basename='admin-chemical')
 router.register(r'export', ChemicalExportViewSet, basename='chemical-export')
-router.register(r'', ChemicalReadOnlyViewSet, basename='chemical')
+router.register(r'', ChemicalViewSet, basename='chemical')
 
 urlpatterns = [
     path(route='user/', view=UserChemicalsReadOnlyViewSet.as_view({'get': 'list'}), name="user-tasks"),

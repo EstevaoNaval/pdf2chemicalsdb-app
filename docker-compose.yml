@@ -7,7 +7,7 @@ services:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped
     env_file:
-      - .env
+      - web/.env
     networks:
       - bridge-network
 
@@ -35,7 +35,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     env_file:
-      - .env
+      - api/.env
+      - api/.env.django-worker-api
     networks:
       - bridge-network
     depends_on:
@@ -66,7 +67,8 @@ services:
     volumes:
       - ${DATA_ROOT_DIR}:${DATA_ROOT_DIR}:rw
     env_file:
-      - .env
+      - api/.env
+      - api/.env.django-worker-api
     environment:
       - CELERY_BROKER_URL=${CELERY_BROKER_URL}
       - ENTRYPOINT_PATH=/src/scripts/docker-django-worker-entrypoint.sh
@@ -181,7 +183,7 @@ services:
       POSTGRES_USER: ${DATABASE_USER}
       POSTGRES_DB: ${DATABASE_NAME}
     env_file:
-      - .env
+      - api/.env
     command: >
       postgres -c port=5477
     volumes:
@@ -206,7 +208,7 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
     env_file:
-      - .env
+      - api/.env
     environment:
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
     restart: unless-stopped
